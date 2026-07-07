@@ -196,12 +196,15 @@ export async function upsertEntitlements(
 // Coverage helpers
 // ---------------------------------------------------------------------------
 
+/** The local `subscriptions.status` union (mirrors `subscriptionStatus` in schema.ts). */
+export type SubscriptionStatus = "active" | "on_hold" | "cancelled" | "expired";
+
 type SubscriptionRow = {
   _id: import("../_generated/dataModel").Id<"subscriptions">;
   userId: string;
   dodoSubscriptionId: string;
   planKey: string;
-  status: "active" | "on_hold" | "cancelled" | "expired";
+  status: SubscriptionStatus;
   currentPeriodEnd: number;
 };
 
@@ -366,7 +369,7 @@ const FALLBACK_PLAN_KEY = "enterprise";
  * runs on a schedule and detects "Dodo has products our catalog doesn't"
  * BEFORE a webhook arrives, so most cases are caught proactively.
  */
-async function resolvePlanKey(
+export async function resolvePlanKey(
   ctx: MutationCtx,
   dodoProductId: string,
 ): Promise<string> {
@@ -563,6 +566,13 @@ export async function handleSubscriptionActive(
       dodoCustomerId: incomingDodoCustomerId ?? existing.dodoCustomerId,
       rawPayload: data,
       updatedAt: eventTimestamp,
+      // A live webhook proves the sub exists and (re)activates it — clear the
+      // renewal-reconciliation bookkeeping so a future stale episode starts
+      // from a clean slate (esp. the consecutive-404 streak). See
+      // payments/billing:reconcileMissedDodoRenewals.
+      lastReconcileAttemptAt: undefined,
+      reconcileFailureCount: undefined,
+      reconcileNotFoundCount: undefined,
     });
   } else {
     await ctx.db.insert("subscriptions", {
@@ -713,6 +723,12 @@ export async function handleSubscriptionRenewed(
     dodoCustomerId: mergeDodoCustomerId(data, existing),
     rawPayload: data,
     updatedAt: eventTimestamp,
+    // Renewal proves the sub exists — clear renewal-reconciliation bookkeeping
+    // so a future stale episode starts from a clean slate (esp. the
+    // consecutive-404 streak). See payments/billing:reconcileMissedDodoRenewals.
+    lastReconcileAttemptAt: undefined,
+    reconcileFailureCount: undefined,
+    reconcileNotFoundCount: undefined,
   });
 
   // Recompute from ALL subs — a renewal on a lower-tier sub must NOT
