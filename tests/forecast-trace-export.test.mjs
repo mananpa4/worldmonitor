@@ -7867,6 +7867,21 @@ describe('phase 3 simulation re-ingestion — matching helpers', () => {
     assert.ok(matchesChannel({ label: 'Regional Conflict & Sovereign Risk Spiral', summary: 'rapid repricing of sovereign risk' }, 'risk_off_rotation'));
     assert.ok(matchesChannel({ label: 'Global Economic Shockwave', summary: '' }, 'risk_off_rotation'));
     assert.ok(matchesChannel({ label: 'Market contagion from India FX crisis', summary: '' }, 'risk_off_rotation'));
+    assert.ok(matchesChannel({ label: 'Sell-off hits global risk assets', summary: '' }, 'risk_off_rotation'));
+  });
+
+  it('matchesBucket avoids substring hits inside unrelated words', () => {
+    assert.ok(!matchesBucket({ label: 'Corporate debt briefing', summary: '' }, 'rates_inflation'));
+    assert.ok(matchesBucket({ label: 'Interest rate shock hits lenders', summary: '' }, 'rates_inflation'));
+  });
+
+  it('matchesChannel avoids bare security keyword over-fires inside broader words', () => {
+    assert.ok(!matchesChannel({ label: 'Paramilitary procurement budget update', summary: '' }, 'security_escalation'));
+    assert.ok(!matchesChannel({ label: 'Cyberattack insurance repricing', summary: '' }, 'security_escalation'));
+    assert.ok(!matchesChannel({ label: 'Military procurement budget update', summary: '' }, 'security_escalation'));
+    assert.ok(!matchesChannel({ label: 'Cyber attack insurance repricing', summary: '' }, 'security_escalation'));
+    assert.ok(matchesChannel({ label: 'Military action expands near the border', summary: '' }, 'security_escalation'));
+    assert.ok(matchesChannel({ label: 'Airstrike on Strait of Hormuz oil infrastructure', summary: '' }, 'security_escalation'));
   });
 
   it('matchesChannel returns false for unrelated text', () => {
