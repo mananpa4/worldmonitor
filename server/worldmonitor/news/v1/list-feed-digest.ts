@@ -183,10 +183,11 @@ interface ParsedItem {
   // absent, too short, or indistinguishable from the headline. Grounding input
   // for brief / whyMatters / SummarizeArticle LLMs.
   description: string;
-  // Opinion / analysis classification (classifyOpinion over title + link +
-  // description). Persisted on the story:track:v1 row as `isOpinion` so the
-  // brief's read path (buildDigest) can exclude op-ed/column content — the
-  // brief is event-driven intelligence, a column is not an event. See
+  // Non-event brief classification (classifyOpinion over title + link +
+  // description). Persisted on the legacy `isOpinion` story:track:v1 field
+  // so buildDigest can exclude op-ed/column and historical-explainer content
+  // — the brief is event-driven intelligence, not an editorial or look-back
+  // feed. See
   // docs/plans/2026-05-14-001-…-plan.md (F3). story:track rows feed more
   // than the brief, so this STAMPS rather than drops — only buildDigest
   // filters on it.
@@ -424,7 +425,11 @@ async function fetchAndParseRss(
   // shape changes.)
   // v5→v6 (#4920 review): ParseResult gained droppedFeedCap; warm v5 rows
   // lack it and would undercount the coverage ledger for their whole TTL.
-  const cacheKey = `rss:feed:v6:${variant}:${feed.url}`;
+  // v6→v7: ParsedItems now stamp historical explainers using their persisted
+  // publishedAt. Digest reads deliberately trust explicit isOpinion stamps,
+  // so warm v6 rows could retain an earlier "0" verdict for one cache TTL.
+  // Force a cold parse to stamp the stable ingest-time verdict immediately.
+  const cacheKey = `rss:feed:v7:${variant}:${feed.url}`;
 
   try {
     // Read cache unconditionally — the v5 prefix guarantees pre-fix
@@ -603,7 +608,7 @@ function parseRssXml(xml: string, feed: ServerFeed, variant: string): ParseResul
       entityCorroborationCount: 0,
       lang: feed.lang ?? 'en',
       description,
-      isOpinion: classifyOpinion({ title, link, description }),
+      isOpinion: classifyOpinion({ title, link, description, publishedAt }),
       isFeelGood: classifyFeelGood({ title, link, description }),
       isEphemeralLiveCoverage: classifyEphemeralLiveCoverage({ title, link, description }),
       tickers: extractTickers(`${title} ${description}`, TICKER_DICTIONARY),
@@ -1106,8 +1111,9 @@ function buildStoryTrackHsetFields(
     'entityCorroborationCount', Number.isFinite(item.entityCorroborationCount)
       ? String(item.entityCorroborationCount)
       : '0',
-    // Opinion/analysis flag (classifyOpinion). '1' = op-ed/column,
-    // '0' = hard news. buildDigest's read-path filter excludes '1' rows
+    // Non-event brief flag (classifyOpinion). '1' = op-ed/column or
+    // historical explainer, '0' = hard news. The legacy `isOpinion` field
+    // name remains for cache compatibility; buildDigest excludes '1' rows
     // from the brief pool. Written unconditionally for the same
     // shared-row reason as `description` above: story:track rows are
     // collapsed by normalised-title hash, so a stale '1' from an earlier

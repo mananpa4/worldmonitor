@@ -40,9 +40,9 @@ const { fetchFollowedCountries } = require('./lib/followed-countries-fetch.cjs')
 const { Resend } = require('resend');
 const { normalizeResendSender } = require('./lib/resend-from.cjs');
 import { readRawJsonFromUpstash, redisPipeline } from '../api/_upstash-json.js';
-import { classifyOpinion } from '../server/_shared/opinion-classifier.js';
 import { classifyFeelGood } from '../server/_shared/feelgood-classifier.js';
 import { classifyEphemeralLiveCoverage } from '../shared/ephemeral-live-classifier.js';
+import { shouldDropOpinionTrack } from './lib/digest-opinion-track-filter.mjs';
 import {
   composeBriefFromDigestStories,
   compareRules,
@@ -712,24 +712,12 @@ async function buildDigest(rule, windowStartMs) {
       continue;
     }
 
-    // Opinion / analysis exclusion (F3). The brief is event-driven
-    // intelligence — an op-ed column is not an event. Ingest stamps
-    // `isOpinion` on the story:track:v1 row; trust that stamp when
-    // present ('1' | '0'). Pre-stamp residue rows (ingested before the
-    // ingest-side stamp shipped) have NO `isOpinion` field at all — for
-    // those, re-classify from the persisted title/link/description so
-    // residue is still excluded for the row's TTL window. See
-    // docs/plans/2026-05-14-001-…-plan.md (F3, Phase 3).
-    const stampedOpinion = track.isOpinion === '1';
-    const stampMissing = typeof track.isOpinion !== 'string' || track.isOpinion.length === 0;
-    if (
-      stampedOpinion ||
-      (stampMissing && classifyOpinion({
-        title: track.title,
-        link: track.link ?? '',
-        description: typeof track.description === 'string' ? track.description : '',
-      }))
-    ) {
+    // Non-event brief exclusion (F3). The brief is event-driven intelligence
+    // — an op-ed or historical explainer is not an event.
+    // Ingest stamps `isOpinion` on the story:track:v1 row. Explicit "1" and
+    // "0" are authoritative; only unstamped legacy rows are classified at
+    // read time by the pure helper below.
+    if (shouldDropOpinionTrack(track)) {
       droppedOpinion++;
       continue;
     }
